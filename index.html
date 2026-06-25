@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="zh-HK">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>PDF Viewer</title>
+        <style>
+            :root {
+                color-scheme: light dark;
+                --bg: #f5f7f9;
+                --card: #ffffff;
+                --text: #102a43;
+                --muted: #627d98;
+                --border: #e1e7ed;
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    sans-serif;
+                line-height: 1.4;
+                background: var(--bg);
+                color: var(--text);
+                display: flex;
+                justify-content: center;
+            }
+
+            main {
+                width: 100%;
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 16px;
+            }
+
+            header {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                padding: 8px 6px 14px;
+                border-bottom: 1px solid var(--border);
+                margin-bottom: 14px;
+                text-align: center;
+            }
+
+            header h1 {
+                margin: 0;
+                font-weight: 700;
+            }
+
+            header p {
+                margin: 0;
+                color: var(--muted);
+                font-size: 13px;
+            }
+
+            #pages {
+                height: 80vh;
+                overflow: auto;
+                padding: 6px;
+                background: #fff;
+                border-radius: 10px;
+                border: 1px solid var(--border);
+            }
+
+            .page-wrap {
+                position: relative;
+                margin: 0 auto 16px;
+                width: fit-content;
+            }
+
+            canvas {
+                display: block;
+                background: #fff;
+            }
+
+            .overlay {
+                position: absolute;
+                inset: 0;
+                pointer-events: none; /* Let hit elements re-enable pointer events */
+            }
+
+            .hit {
+                pointer-events: auto;
+                cursor: pointer;
+                padding: 0;
+                margin: 0;
+                border: 0;
+                position: absolute;
+                transition: background 0.2s, border 0.2s;
+                border-radius: 4px;
+            }
+
+            /* 1. Select Answer - Blue */
+            .hit.type-quiz {
+                background: rgba(0, 123, 255, 0.15);
+                border: 1px solid rgba(0, 123, 255, 0.3);
+            }
+            .hit.type-quiz:hover {
+                background: rgba(0, 123, 255, 0.3);
+            }
+
+            /* 2. View Description (Vocabulary) - Light Blue/Orange Hint */
+            .hit.type-view-desc {
+                background: rgba(179, 215, 238, 0.3);
+                border: 1px solid rgba(179, 215, 238, 0.6);
+            }
+            .hit.type-view-desc:hover {
+                background: rgba(179, 215, 238, 0.5);
+            }
+
+            /* 3. General Description - Green */
+            .hit.type-desc {
+                background: rgba(40, 167, 69, 0.15);
+                border: 1px solid rgba(40, 167, 69, 0.3);
+            }
+            .hit.type-desc:hover {
+                background: rgba(40, 167, 69, 0.3);
+            }
+
+            .hit.locked {
+                pointer-events: none;
+                background: transparent !important;
+                border-color: transparent !important;
+                cursor: default;
+            }
+
+            .popup {
+                position: absolute;
+                min-width: 280px;
+                max-width: 350px;
+                background: #ffffff;
+                border-radius: 12px;
+                box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15);
+                overflow: hidden;
+                z-index: 100;
+                border: 1px solid #d1d1d1;
+                display: none;
+                pointer-events: auto;
+                transform: translateY(6px);
+            }
+
+            .popup.open {
+                display: block;
+            }
+
+            .popup-header {
+                background-color: #b3d7ee; /* Light blue from image */
+                color: #000000;            /* Black text */
+                padding: 12px 16px;
+                font-weight: 800;
+                font-size: 24px;           /* Large word title */
+                text-align: center;
+                letter-spacing: -0.5px;
+                border-bottom: 1px solid rgba(0,0,0,0.05);
+            }
+
+            .popup-body {
+                background-color: #ffffff; /* White background */
+                color: #000000;            /* Black text */
+                padding: 16px;
+                font-size: 16px;
+                line-height: 1.5;
+                font-family: "Georgia", serif; /* Serif font like in the image */
+                white-space: pre-wrap;
+            }
+
+            .popup-phonetic {
+                color: #666666;
+                font-size: 14px;
+                margin-top: 10px;
+                border-top: 1px solid #eeeeee;
+                padding-top: 8px;
+                font-family: sans-serif;
+            }
+
+            .badge {
+                position: absolute;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 900;
+                pointer-events: none;
+                z-index: 10;
+                transform: translate(-50%, -50%);
+                font-size: 42px;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+
+            .badge.ok {
+                color: #0f7a2a;
+            }
+
+            .badge.no {
+                color: #a30b1a;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <header>
+                <h1 center>PDF Viewer</h1>
+            </header>
+            <div id="pages" aria-live="polite"></div>
+        </main>
+
+        <!-- LOGIC: Pure utility functions and data processing -->
+        <script>
+            window.PDFLogic = {
+                normalizeStr: (s) => {
+                    if (!s) return '';
+                    return String(s).toLowerCase().trim();
+                },
+
+                safeStringify: (obj) => {
+                    try {
+                        return JSON.stringify(obj, null, 2);
+                    } catch (e) {
+                        return String(obj);
+                    }
+                },
+
+                getAnnotationType: (anno) => {
+                    const name = window.PDFLogic.normalizeStr(anno.fieldName || '');
+
+                    // Placeholder check: if it ends with _popup, it's a position marker, not a trigger.
+                    if (name.endsWith('_popup')) {
+                        return 'placeholder';
+                    }
+
+                    // 1. Select Answer (Quiz) - correct/incorrect related buttons
+                    if (name.includes('correct') || name.includes('incorrect') || name.endsWith('_btn')) {
+                        return 'quiz';
+                    }
+
+                    // 2. View Description (Vocabulary) - _on, _off
+                    if (name.endsWith('_on') || name.endsWith('_off')) {
+                        return 'view-desc';
+                    }
+
+                    return 'unknown';
+                },
+
+                extractAnnoPopupHeader: (anno) => {
+                    const name = window.PDFLogic.normalizeStr(anno.fieldName || anno.partialName || '');
+                    let cleaned = name.replace(/_popup$/i, '').replace(/_btn$/i, '').replace(/_/g, ' ').trim();
+                    if (cleaned) {
+                        return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+                    }
+                    return 'Details';
+                },
+
+                extractAnnoPopupText: (anno) => {
+                    if (typeof anno.contents === 'string' && anno.contents.trim()) {
+                        return anno.contents.trim();
+                    }
+
+                    if (typeof anno.title === 'string' && anno.title.trim()) {
+                        return anno.title.trim();
+                    }
+
+                    if (anno.richText) {
+                        if (typeof anno.richText === 'string') {
+                            return anno.richText;
+                        }
+                        return window.PDFLogic.safeStringify(anno.richText).slice(0, 400);
+                    }
+
+                    const fieldName = window.PDFLogic.normalizeStr(anno.fieldName || anno.partialName || '');
+                    if (!fieldName) {
+                        return '';
+                    }
+
+                    let cleaned = fieldName.replace(/_popup$/i, '').replace(/_btn$/i, '').replace(/_/g, ' ').trim();
+
+                    if (cleaned.toLowerCase() === 'correct') return 'Correct';
+                    if (cleaned.toLowerCase() === 'incorrect') return 'Incorrect';
+
+                    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+                },
+
+                isQuizWidget: (anno) => window.PDFLogic.getAnnotationType(anno) === 'quiz',
+
+                extractWidgetOptionLabel: (anno) => {
+                    const labelCandidates = [
+                        anno.buttonValue,
+                        anno.exportValue,
+                        anno.value,
+                        anno.fieldValue,
+                        anno.defaultValue,
+                        anno.text,
+                        anno.alternativeText
+                    ];
+
+                    for (const v of labelCandidates) {
+                        if (typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'off') {
+                            return v.trim();
+                        }
+                    }
+                    return '';
+                },
+
+                extractGroupKey: (anno, pageNumber) => {
+                    let name = window.PDFLogic.normalizeStr(anno.fieldName || anno.partialName || '');
+
+                    let base = name.replace(/(_btn|_on|_off|_popup)$/i, '')
+                                   .replace(/(correct|incorrect)/gi, '')
+                                   .replace(/^(_+)|(_+)$/g, '')
+                                   .trim();
+
+                    if (!base) {
+                        const y = anno.rect ? Math.round(anno.rect[1] / 10) : 0;
+                        return `q-p${pageNumber}-y${y}`;
+                    }
+
+                    return `p${pageNumber}-${base}`;
+                }
+            };
+        </script>
+
+        <!-- RENDER: DOM manipulation and PDF.js execution -->
+        <script type="module">
+            const pagesEl = document.getElementById('pages');
+            const { PDFLogic } = window;
+
+            const createHitButton = ({ left, top, width, height, onClick }) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'hit';
+                btn.style.left = `${left}px`;
+                btn.style.top = `${top}px`;
+                btn.style.width = `${width}px`;
+                btn.style.height = `${height}px`;
+
+                const handleInteraction = (evt) => {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                    onClick(evt);
+                };
+
+                btn.addEventListener('click', handleInteraction);
+                btn.addEventListener('keydown', (evt) => {
+                    if (evt.key === 'Enter' || evt.key === ' ') {
+                        handleInteraction(evt);
+                    }
+                });
+
+                return btn;
+            };
+
+            const quizGroups = Object.create(null);
+            const quizLocked = Object.create(null);
+
+            window.addEventListener('error', (evt) => {
+                console.error('window.onerror:', evt.error || evt.message);
+            });
+
+            window.addEventListener('unhandledrejection', (evt) => {
+                console.error('unhandledrejection:', evt.reason);
+            });
+
+            const main = async () => {
+                const origin = window.location?.origin !== 'null' ? window.location.origin : '';
+                const pdfUrl = `${origin}/pdf/document.pdf`;
+
+                const pdfjsCdnMod = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/+esm');
+                const pdfjsLib = pdfjsCdnMod.default || pdfjsCdnMod;
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/build/pdf.worker.mjs';
+
+                const loadingTask = pdfjsLib.getDocument({ url: pdfUrl });
+                const pdfDocument = await loadingTask.promise;
+
+                console.log(pdfDocument)
+
+                const availableWidth = Math.min(980, window.innerWidth - 64);
+                const scaleCap = 2.0;
+                const scaleFloor = 0.75;
+
+                for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
+                    const page = await pdfDocument.getPage(pageNumber);
+
+                    const rawViewport = page.getViewport({ scale: 1 });
+                    const scale = Math.max(scaleFloor, Math.min(scaleCap, availableWidth / rawViewport.width));
+                    const viewport = page.getViewport({ scale });
+
+                    const pageWrap = document.createElement('div');
+                    pageWrap.className = 'page-wrap';
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = Math.floor(viewport.width);
+                    canvas.height = Math.floor(viewport.height);
+                    canvas.style.width = `${canvas.width}px`;
+                    canvas.style.height = `${canvas.height}px`;
+
+                    const overlay = document.createElement('div');
+                    overlay.className = 'overlay';
+                    overlay.style.width = `${canvas.width}px`;
+                    overlay.style.height = `${canvas.height}px`;
+
+                    pageWrap.append(canvas, overlay);
+                    pagesEl.appendChild(pageWrap);
+
+                    await page.render({ canvasContext: ctx, viewport }).promise;
+
+                    const annotations = await page.getAnnotations({ intent: 'display' });
+
+                    // 1) Process Quiz Groups
+                    annotations.forEach(anno => {
+                        if (!anno?.rect || !PDFLogic.isQuizWidget(anno)) return;
+
+                        const groupKey = PDFLogic.extractGroupKey(anno, pageNumber);
+                        if (!quizGroups[groupKey]) {
+                            quizGroups[groupKey] = {
+                                fieldValue: typeof anno.fieldValue === 'string' ? anno.fieldValue : '',
+                                options: []
+                            };
+                        } else if (!quizGroups[groupKey].fieldValue && typeof anno.fieldValue === 'string') {
+                            quizGroups[groupKey].fieldValue = anno.fieldValue;
+                        }
+
+                        const rectPx = viewport.convertToViewportRectangle(anno.rect);
+                        quizGroups[groupKey].options.push({
+                            label: PDFLogic.extractWidgetOptionLabel(anno) || groupKey,
+                            rect: {
+                                left: Math.min(rectPx[0], rectPx[2]),
+                                top: Math.min(rectPx[1], rectPx[3]),
+                                width: Math.abs(rectPx[2] - rectPx[0]),
+                                height: Math.abs(rectPx[3] - rectPx[1])
+                            },
+                            annotation: anno
+                        });
+                    });
+
+                    // De-dup quiz options
+                    Object.values(quizGroups).forEach(group => {
+                        const seen = new Set();
+                        group.options = group.options.filter(opt => {
+                            const key = PDFLogic.normalizeStr(opt.label);
+                            if (!key || seen.has(key)) return false;
+                            seen.add(key);
+                            return true;
+                        });
+                    });
+
+                    // 2) Pre-scan for popup positions
+                    const popupPositions = {};
+                    annotations.forEach(anno => {
+                        if (!anno?.rect) return;
+                        const name = PDFLogic.normalizeStr(anno.fieldName || '');
+                        if (name.endsWith('_popup')) {
+                            const rectPx = viewport.convertToViewportRectangle(anno.rect);
+                            popupPositions[name] = {
+                                left: Math.min(rectPx[0], rectPx[2]),
+                                top: Math.min(rectPx[1], rectPx[3]),
+                                width: Math.abs(rectPx[2] - rectPx[0]),
+                                height: Math.abs(rectPx[3] - rectPx[1])
+                            };
+                        }
+                    });
+
+                    // 3) Create interactive elements
+                    let openPopupEl = null;
+                    let openPopupAnnotationId = null;
+
+                    annotations.forEach((anno, i) => {
+                        if (!anno?.rect) return;
+
+                        const rectPx = viewport.convertToViewportRectangle(anno.rect);
+                        const [left, top, width, height] = [
+                            Math.min(rectPx[0], rectPx[2]),
+                            Math.min(rectPx[1], rectPx[3]),
+                            Math.abs(rectPx[2] - rectPx[0]),
+                            Math.abs(rectPx[3] - rectPx[1])
+                        ];
+
+                        const annoId = PDFLogic.normalizeStr(anno.id || (anno.ref ? `${anno.ref.num}-${anno.ref.gen}` : `${i}-${pageNumber}`));
+                        const type = PDFLogic.getAnnotationType(anno);
+
+                        if (type === 'quiz') {
+                            const groupKey = PDFLogic.extractGroupKey(anno, pageNumber);
+                            const hit = createHitButton({
+                                left, top, width: Math.max(1, width), height: Math.max(1, height),
+                                onClick: (evt) => {
+                                    const currentGroupKey = evt.currentTarget.dataset.quizGroupKey;
+                                    if (quizLocked[currentGroupKey]) return;
+                                    quizLocked[currentGroupKey] = true;
+
+                                    const name = PDFLogic.normalizeStr(anno.fieldName || '');
+                                    const isCorrect = name.includes('correct') && !name.includes('incorrect');
+                                    const targetPopupName = name.replace(/(_btn|_on|_off)$/i, '_popup');
+                                    const pos = popupPositions[targetPopupName] || { left, top, width, height };
+
+                                    const badge = document.createElement('div');
+                                    badge.className = `badge ${isCorrect ? 'ok' : 'no'}`;
+                                    badge.textContent = isCorrect ? '✓' : '×';
+                                    badge.style.left = `${pos.left + pos.width / 2}px`;
+                                    badge.style.top = `${pos.top + pos.height / 2}px`;
+                                    overlay.appendChild(badge);
+
+                                    document.querySelectorAll(`.hit[data-quiz-group-key="${currentGroupKey}"]`).forEach(h => {
+                                        h.classList.add('locked');
+                                        Object.assign(h.style, { pointerEvents: 'none', background: 'transparent', border: 'none' });
+                                    });
+                                }
+                            });
+                            hit.classList.add('type-quiz');
+                            hit.dataset.quizGroupKey = groupKey;
+                            overlay.appendChild(hit);
+                            return;
+                        }
+
+                        const popupText = PDFLogic.extractAnnoPopupText(anno);
+                        const isPopupCandidate = (type === 'view-desc' || popupText || ['Popup', 'Text', 'Highlight', 'Link'].includes(anno.subtype) || anno.action || anno.aa) && type !== 'placeholder';
+
+                        if (!isPopupCandidate) return;
+
+                        const popup = document.createElement('div');
+                        popup.className = 'popup';
+
+                        const header = document.createElement('div');
+                        header.className = 'popup-header';
+                        header.textContent = PDFLogic.extractAnnoPopupHeader(anno);
+
+                        const body = document.createElement('div');
+                        body.className = 'popup-body';
+                        const text = popupText || (typeof anno.action === 'string' ? anno.action : 'No details available.');
+
+                        if (text.includes('(') && text.includes(')')) {
+                            const parts = text.split('\n');
+                            body.innerHTML = `<div>${parts[0]}</div><div class="popup-phonetic">${parts.slice(1).join('<br>')}</div>`;
+                        } else {
+                            body.textContent = text;
+                        }
+
+                        popup.append(header, body);
+                        overlay.appendChild(popup);
+
+                        const pos = popupPositions[PDFLogic.normalizeStr(anno.fieldName || '')] || { left, top, width, height };
+                        popup.style.left = `${pos.left}px`;
+                        popup.style.top = `${pos.top + pos.height + 4}px`;
+
+                        const hit = createHitButton({
+                            left, top, width: Math.max(1, width), height: Math.max(1, height),
+                            onClick: () => {
+                                const isSame = openPopupAnnotationId === annoId;
+                                if (openPopupEl) openPopupEl.classList.remove('open');
+
+                                if (isSame) {
+                                    openPopupAnnotationId = null;
+                                    openPopupEl = null;
+                                } else {
+                                    popup.classList.add('open');
+                                    openPopupAnnotationId = annoId;
+                                    openPopupEl = popup;
+                                }
+                            }
+                        });
+                        hit.classList.add(`type-${type === 'view-desc' ? 'view-desc' : (type === 'quiz' ? 'quiz' : 'desc')}`);
+                        hit.dataset.popupAnnotationId = annoId;
+                        overlay.appendChild(hit);
+                    });
+
+                    pageWrap.addEventListener('click', () => {
+                        if (openPopupEl) openPopupEl.classList.remove('open');
+                        openPopupAnnotationId = null;
+                        openPopupEl = null;
+                    });
+                    overlay.addEventListener('click', (evt) => evt.stopPropagation());
+                }
+            };
+
+            main().catch(err => {
+                console.error(err);
+            });
+        </script>
+    </body>
+</html>
+
