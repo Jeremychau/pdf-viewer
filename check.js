@@ -1,368 +1,3 @@
-<!doctype html>
-<html lang="zh-HK">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>PDF Viewer</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/web/pdf_viewer.css">
-        <style>
-            :root {
-                color-scheme: light dark;
-                --bg: #f5f7f9;
-                --card: #ffffff;
-                --text: #102a43;
-                --muted: #627d98;
-                --border: #e1e7ed;
-            }
-
-            * {
-                box-sizing: border-box;
-            }
-
-            body {
-                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-                    sans-serif;
-                line-height: 1.4;
-                background: var(--bg);
-                color: var(--text);
-                display: flex;
-                justify-content: center;
-            }
-
-            main {
-                width: 100%;
-                background: var(--card);
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                padding: 16px;
-            }
-
-            header {
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-                padding: 8px 6px 14px;
-                border-bottom: 1px solid var(--border);
-                margin-bottom: 14px;
-                text-align: center;
-            }
-
-            header h1 {
-                margin: 0;
-                font-weight: 700;
-            }
-
-            header p {
-                margin: 0;
-                color: var(--muted);
-                font-size: 13px;
-            }
-
-            #pages {
-                height: 80vh;
-                overflow: auto;
-                padding: 6px;
-                background: #fff;
-                border-radius: 10px;
-                border: 1px solid var(--border);
-            }
-
-            .page-wrap {
-                position: relative;
-                margin: 0 auto 16px;
-                width: fit-content;
-            }
-
-            canvas {
-                display: block;
-                background: #fff;
-            }
-
-            .overlay {
-                position: absolute;
-                inset: 0;
-                pointer-events: none; /* Let hit elements re-enable pointer events */
-            }
-
-            .hit {
-                pointer-events: auto;
-                cursor: pointer;
-                padding: 0;
-                margin: 0;
-                border: 0;
-                position: absolute;
-                transition: background 0.2s, border 0.2s;
-                border-radius: 4px;
-            }
-
-            /* 1. Select Answer - Blue */
-            .hit.type-quiz {
-                background: rgba(0, 123, 255, 0.15);
-                border: 1px solid rgba(0, 123, 255, 0.3);
-            }
-            .hit.type-quiz:hover {
-                background: rgba(0, 123, 255, 0.3);
-            }
-
-            /* 2. View Description (Vocabulary) - Light Blue/Orange Hint */
-            .hit.type-view-desc {
-                background: rgba(179, 215, 238, 0.3);
-                border: 1px solid rgba(179, 215, 238, 0.6);
-            }
-            .hit.type-view-desc:hover {
-                background: rgba(179, 215, 238, 0.5);
-            }
-
-            /* 3. General Description - Green */
-            .hit.type-desc {
-                background: rgba(40, 167, 69, 0.15);
-                border: 1px solid rgba(40, 167, 69, 0.3);
-            }
-            .hit.type-desc:hover {
-                background: rgba(40, 167, 69, 0.3);
-            }
-
-            .hit.locked {
-                pointer-events: none;
-                background: transparent !important;
-                border-color: transparent !important;
-                cursor: default;
-            }
-
-            .popup {
-                position: absolute;
-                background: #ffffff;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                overflow: auto;
-                z-index: 100;
-                border: 1px solid #d1d1d1;
-                display: none;
-                pointer-events: auto;
-                padding: 12px;
-                white-space: pre-wrap;
-                font-size: 16px;
-                color: #000000;
-                font-family: "Georgia", serif;
-            }
-
-            .popup.native-style {
-                font-family: inherit;
-                padding: 16px;
-                line-height: 1.5;
-                background: #ffffe0; /* PDF native popup yellow */
-                border: 1px solid #333;
-                box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-                border-radius: 2px;
-            }
-
-            .popup.native-style p {
-                margin-top: 0;
-            }
-
-            .popup.native-style span[style*="color"] {
-                /* Ensure rich text colors work */
-            }
-
-            .popup.native-style span[style*="font-weight:bold"],
-            .popup.native-style b,
-            .popup.native-style strong {
-                font-weight: bold;
-            }
-
-            .popup.native-style span[style*="font-style:italic"],
-            .popup.native-style i,
-            .popup.native-style em {
-                font-style: italic;
-            }
-
-            .popup.native-style.open {
-                z-index: 1000 !important;
-            }
-
-            .popup-close-btn {
-                position: absolute;
-                top: 4px;
-                right: 4px;
-                background: none;
-                border: none;
-                font-size: 20px;
-                cursor: pointer;
-                color: #666;
-                padding: 0 4px;
-                line-height: 1;
-            }
-
-            .popup-close-btn:hover {
-                color: #000;
-            }
-
-            .popup.open {
-                display: block;
-            }
-
-            .badge {
-                position: absolute;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                font-weight: 900;
-                pointer-events: none;
-                z-index: 10;
-                transform: translate(-50%, -50%);
-                font-size: 42px;
-                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }
-
-            .badge.ok {
-                color: #0f7a2a;
-            }
-
-            .badge.no {
-                color: #a30b1a;
-            }
-        </style>
-    </head>
-    <body>
-        <main>
-            <header>
-                <h1 center>PDF Viewer</h1>
-            </header>
-            <div id="pages" aria-live="polite"></div>
-        </main>
-
-        <!-- LOGIC: Pure utility functions and data processing -->
-        <script>
-            if (!Map.prototype.getOrInsertComputed) {
-                Map.prototype.getOrInsertComputed = function(key, callback) {
-                    if (this.has(key)) return this.get(key);
-                    const value = callback(key);
-                    this.set(key, value);
-                    return value;
-                };
-            }
-            if (!Promise.withResolvers) {
-                Promise.withResolvers = function() {
-                    let resolve, reject;
-                    const promise = new Promise((res, rej) => {
-                        resolve = res;
-                        reject = rej;
-                    });
-                    return { promise, resolve, reject };
-                };
-            }
-            if (!Math.sumPrecise) {
-                Math.sumPrecise = function(values) {
-                    let sum = 0;
-                    for (const v of values) sum += v;
-                    return sum;
-                };
-            }
-            window.PDFLogic = {
-                normalizeStr: (s) => {
-                    if (!s) return '';
-                    return String(s).toLowerCase().trim();
-                },
-
-                safeStringify: (obj) => {
-                    try {
-                        return JSON.stringify(obj, null, 2);
-                    } catch (e) {
-                        return String(obj);
-                    }
-                },
-
-                getAnnotationType: (anno) => {
-                    const name = window.PDFLogic.normalizeStr(anno.fieldName || '');
-
-                    // Placeholder check: if it ends with _popup, it's a position marker, not a trigger.
-                    if (name.endsWith('_popup')) {
-                        return 'placeholder';
-                    }
-
-                    // 1. Select Answer (Quiz) - correct/incorrect related buttons
-                    if (name.includes('correct') || name.includes('incorrect') || name.endsWith('_btn')) {
-                        return 'quiz';
-                    }
-
-                    // 2. View Description (Vocabulary) - _on, _off
-                    if (name.endsWith('_on') || name.endsWith('_off')) {
-                        return 'view-desc';
-                    }
-
-                    return 'unknown';
-                },
-
-                extractAnnoPopupText: (anno) => {
-                    if (typeof anno.contents === 'string' && anno.contents.trim()) {
-                        return anno.contents.trim();
-                    }
-
-                    if (typeof anno.title === 'string' && anno.title.trim()) {
-                        return anno.title.trim();
-                    }
-
-                    if (anno.richText) {
-                        if (typeof anno.richText === 'string') {
-                            return anno.richText;
-                        }
-                        return window.PDFLogic.safeStringify(anno.richText).slice(0, 400);
-                    }
-
-                    const fieldName = window.PDFLogic.normalizeStr(anno.fieldName || anno.partialName || '');
-                    if (!fieldName) {
-                        return '';
-                    }
-
-                    let cleaned = fieldName.replace(/_popup$/i, '').replace(/_btn$/i, '').replace(/_/g, ' ').trim();
-
-                    if (cleaned.toLowerCase() === 'correct') return 'Correct';
-                    if (cleaned.toLowerCase() === 'incorrect') return 'Incorrect';
-
-                    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-                },
-
-                isQuizWidget: (anno) => window.PDFLogic.getAnnotationType(anno) === 'quiz',
-
-                extractWidgetOptionLabel: (anno) => {
-                    const labelCandidates = [
-                        anno.buttonValue,
-                        anno.exportValue,
-                        anno.value,
-                        anno.fieldValue,
-                        anno.defaultValue,
-                        anno.text,
-                        anno.alternativeText
-                    ];
-
-                    for (const v of labelCandidates) {
-                        if (typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'off') {
-                            return v.trim();
-                        }
-                    }
-                    return '';
-                },
-
-                extractGroupKey: (anno, pageNumber) => {
-                    let name = window.PDFLogic.normalizeStr(anno.fieldName || anno.partialName || '');
-
-                    let base = name.replace(/(_btn|_on|_off|_popup)$/i, '')
-                                   .replace(/(correct|incorrect)/gi, '')
-                                   .replace(/^(_+)|(_+)$/g, '')
-                                   .trim();
-
-                    if (!base) {
-                        const y = anno.rect ? Math.round(anno.rect[1] / 10) : 0;
-                        return `q-p${pageNumber}-y${y}`;
-                    }
-
-                    return `p${pageNumber}-${base}`;
-                }
-            };
-        </script>
-
-        <!-- RENDER: DOM manipulation and PDF.js execution -->
-        <script type="module">
             const pagesEl = document.getElementById('pages');
             const { PDFLogic } = window;
 
@@ -479,7 +114,7 @@ page.getOperatorList().then(function(opList) {
                             if (!anno.rect || (anno.rect[2] - anno.rect[0] === 0)) {
                                 anno.rect = [0, 0, 100, 100];
                             }
-
+                            
                             // Make sure subtype is something AnnotationLayer renders directly
                             if (anno.subtype === 'Popup') {
                                 // Try to convert to Text annotation which has a built-in popup
@@ -487,10 +122,10 @@ page.getOperatorList().then(function(opList) {
                                 anno.hasPopup = true;
                                 anno.title = anno.title || 'Popup';
                                 anno.contents = anno.contents || anno.richText || '';
-
+                                
                                 // Give it an icon name so it renders
                                 if (!anno.name) anno.name = 'Comment';
-
+                                
                                 // Remove the popup reference so it doesn't try to find a parent
                                 if (anno.popup) {
                                     delete anno.popup;
@@ -523,14 +158,14 @@ page.getOperatorList().then(function(opList) {
                                 pdfDocument: pdfDocument,
                             }
                         });
-
+                        
                         // Force all elements in annotation layer to be visible initially
                         // so we can find them, then hide the ones that should be hidden
                         const allNativeAnnos = annotationLayerDiv.querySelectorAll('.annotationLayer section');
                         allNativeAnnos.forEach(el => {
                             el.style.visibility = 'visible';
                             el.style.display = 'block';
-
+                            
                             // Try to trigger click to open popups if they are hidden
                             const img = el.querySelector('img');
                             if (img) {
@@ -543,7 +178,7 @@ page.getOperatorList().then(function(opList) {
                     } catch (e) {
                         console.error('AnnotationLayer render error:', e);
                     }
-
+                    
                     // Remove the aggressive !important CSS that was breaking visibility toggling
                     const style = document.createElement('style');
                     style.textContent = `
@@ -552,7 +187,7 @@ page.getOperatorList().then(function(opList) {
                         }
                     `;
                     document.head.appendChild(style);
-
+                    
                     // 2) Pre-scan for popup targets
                     const popupTargets = {};
                     annotations.forEach(anno => {
@@ -573,13 +208,13 @@ page.getOperatorList().then(function(opList) {
                         if (forceShow === undefined) {
                             forceShow = el.style.visibility === 'hidden' || el.style.display === 'none' || el.style.opacity === '0';
                         }
-
+                        
                         if (forceShow) {
                             el.style.visibility = 'visible';
                             el.style.display = 'block';
                             el.style.opacity = '1';
                             el.style.zIndex = '100';
-
+                            
                             // Also make sure inner popup elements are visible
                             const innerPopup = el.querySelector('.popup');
                             if (innerPopup) {
@@ -587,27 +222,27 @@ page.getOperatorList().then(function(opList) {
                                 innerPopup.style.visibility = 'visible';
                                 innerPopup.style.opacity = '1';
                             }
-
+                            
                             const popupWrapper = el.querySelector('.popupWrapper');
                             if (popupWrapper) {
                                 popupWrapper.style.display = 'block';
                                 popupWrapper.style.visibility = 'visible';
                                 popupWrapper.style.opacity = '1';
                             }
-
-                            // Don't simulate click if we are forcing it via CSS,
+                            
+                            // Don't simulate click if we are forcing it via CSS, 
                             // it might just toggle it back off!
                         } else {
                             el.style.visibility = 'hidden';
                             el.style.display = 'none';
                             el.style.opacity = '0';
-
+                            
                             const innerPopup = el.querySelector('.popup');
                             if (innerPopup) {
                                 innerPopup.style.display = 'none';
                                 innerPopup.style.visibility = 'hidden';
                             }
-
+                            
                             const popupWrapper = el.querySelector('.popupWrapper');
                             if (popupWrapper) {
                                 popupWrapper.style.display = 'none';
@@ -640,10 +275,10 @@ page.getOperatorList().then(function(opList) {
                             popup.style.width = `${width}px`;
                             popup.style.height = `${height}px`;
                         }
-
+                        
                         // Try to get rich text first, then fallback to contents
                         let content = anno.richText || anno.contents || anno.fieldValue || anno.value || anno.title || '';
-
+                        
                         // If it's a string that looks like XML/HTML (rich text), we can insert it as HTML
                         if (typeof content === 'string' && (content.includes('<') && content.includes('>'))) {
                             // Basic cleanup of PDF rich text XML
@@ -654,13 +289,13 @@ page.getOperatorList().then(function(opList) {
                                            .replace(/xfa:APIVersion=".*?"/g, '')
                                            .replace(/xfa:spec=".*?"/g, '')
                                            .replace(/dir=".*?"/g, ''); // Remove dir attributes which can sometimes mess up layout
-
+                            
                             // Convert PDF rich text styling to HTML styling if needed
                             // (Most of it is already valid HTML like <b>, <i>, <p>, <span style="...">)
-
+                            
                             const contentDiv = document.createElement('div');
                             contentDiv.innerHTML = content;
-
+                            
                             // Fix any span tags that have color styles to ensure they are visible
                             const spans = contentDiv.querySelectorAll('span');
                             spans.forEach(span => {
@@ -671,16 +306,16 @@ page.getOperatorList().then(function(opList) {
                                     span.style.fontWeight = 'bold';
                                 }
                             });
-
+                            
                             // Make sure paragraphs don't have huge margins
                             const paragraphs = contentDiv.querySelectorAll('p');
                             paragraphs.forEach(p => {
                                 p.style.margin = '0 0 8px 0';
                             });
-
+                            
                             // Make sure text is readable (not white on white)
                             contentDiv.style.color = '#333';
-
+                            
                             popup.appendChild(contentDiv);
                         } else {
                             const contentDiv = document.createElement('div');
@@ -688,10 +323,10 @@ page.getOperatorList().then(function(opList) {
                             contentDiv.style.color = '#333';
                             popup.appendChild(contentDiv);
                         }
-
+                        
                         // Hide it initially
                         popup.style.display = 'none';
-
+                        
                         // Add close button
                         const closeBtn = document.createElement('button');
                         closeBtn.textContent = '×';
@@ -703,10 +338,10 @@ page.getOperatorList().then(function(opList) {
                             if (openPopupEl === popup) openPopupEl = null;
                         };
                         popup.appendChild(closeBtn);
-
+                        
                         overlay.appendChild(popup);
                         popupElements[name] = popup;
-
+                        
                         // Also try to find and hide the native popup if it exists but is broken
                         setTimeout(() => {
                             const nativeEl = getNativePopupEl(anno);
@@ -793,7 +428,7 @@ page.getOperatorList().then(function(opList) {
                                     const name = PDFLogic.normalizeStr(anno.fieldName || '');
                                     const isCorrect = name.includes('correct') && !name.includes('incorrect');
                                     const targetPopupName = name.replace(/(_btn|_on|_off)$/i, '_popup');
-
+                                    
                                     const targetAnno = popupTargets[targetPopupName];
                                     let badgePos = { left, top, width, height };
                                     if (targetAnno) {
@@ -835,7 +470,7 @@ page.getOperatorList().then(function(opList) {
                                 left, top, width: Math.max(1, width), height: Math.max(1, height),
                                 onClick: () => {
                                     const targetEl = getNativePopupEl(targetAnno);
-
+                                    
                                     if (openPopupEl && openPopupEl !== targetEl && openPopupEl !== manualPopup) {
                                         if (openPopupEl.classList && openPopupEl.classList.contains('popup')) {
                                             openPopupEl.classList.remove('open');
@@ -844,20 +479,20 @@ page.getOperatorList().then(function(opList) {
                                             toggleNativePopup(openPopupEl, false);
                                         }
                                     }
-
+                                    
                                     // Use the native AnnotationLayer element
                                     if (targetEl) {
                                         const isHidden = targetEl.style.visibility === 'hidden' || targetEl.style.display === 'none' || targetEl.style.opacity === '0';
-
+                                        
                                         // If it's positioned at 0,0 (default rect), move it near the button
                                         if (targetEl.style.left === '0px' && targetEl.style.top === '0px') {
                                             targetEl.style.left = `${left + width + 10}px`;
                                             targetEl.style.top = `${top}px`;
                                         }
-
+                                        
                                         toggleNativePopup(targetEl, isHidden);
                                         openPopupEl = isHidden ? targetEl : null;
-
+                                        
                                         // Force the target element to be at the top level
                                         if (targetEl && !isHidden) {
                                             targetEl.style.zIndex = '1000';
@@ -893,6 +528,3 @@ page.getOperatorList().then(function(opList) {
                 console.error(err);
             });
         </script>
-    </body>
-</html>
-
