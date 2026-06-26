@@ -3,16 +3,16 @@ const express = require('express');
 
 const app = express();
 
-const rootDir = __dirname; // new_src/
+const rootDir = __dirname;
 
 app.use('/pdf', express.static(path.join(rootDir, 'pdf')));
 
-app.get('/', function (req, res) {
+app.get('/', (req, res) => {
     res.sendFile(path.join(rootDir, 'index.html'));
 });
 
-const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3412;
-app.listen(port, function () {
+const port = 3412;
+app.listen(port, () => {
     // eslint-disable-next-line no-console
     console.log('Server listening on http://localhost:' + port);
 });
